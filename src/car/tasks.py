@@ -24,6 +24,8 @@ from car.targets import Target
 
 # pytest's short test summary lines, enabled with -rfE.
 _SUMMARY_RE = re.compile(r"^(FAILED|ERROR) (\S+)", re.MULTILINE)
+# Terminal colour codes: some projects force `--color=yes` in their pytest config.
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
 SandboxFactory = Callable[[Path], Sandbox]
 
@@ -62,17 +64,24 @@ class GenerationReport:
     accepted: int = 0
     survived: int = 0  # tests still pass: the mutation is invisible to the suite
     timed_out: int = 0
+    # Tests failed but no failing test could be identified from the output. Never
+    # counted as "survived": a parsing problem must not silently discard bugs.
+    unclear: int = 0
     baseline_failures: list[str] = field(default_factory=list)
 
 
 def failing_tests(result: CommandResult) -> set[str]:
     """Test ids reported as failed or errored by pytest (`-rfE`)."""
-    return {match.group(2) for match in _SUMMARY_RE.finditer(result.stdout)}
+    output = _ANSI_RE.sub("", result.stdout)
+    return {match.group(2) for match in _SUMMARY_RE.finditer(output)}
 
 
 def pytest_args(target: Target) -> list[str]:
     """The target's test command plus flags that make the output parseable."""
-    return [*target.test_command, "-q", "-rfE", "--tb=no", "-p", "no:cacheprovider"]
+    return [
+        *target.test_command,
+        "-q", "-rfE", "--tb=no", "--color=no", "-p", "no:cacheprovider",
+    ]  # fmt: skip
 
 
 def task_id(target: Target, mutation: Mutation) -> str:
@@ -179,7 +188,10 @@ def generate_tasks(
             result = box.run(command, timeout_s=timeout_s)
         if result.timed_out:
             return "timed_out", None
-        newly_failing = failing_tests(result) - baseline_failed
+        failed = failing_tests(result)
+        if result.exit_code != 0 and not failed:
+            return "unclear", None
+        newly_failing = failed - baseline_failed
         if result.exit_code == 0 or not newly_failing:
             return "survived", None
         return "accepted", Task(
@@ -201,6 +213,8 @@ def generate_tasks(
                 report.timed_out += 1
             elif status == "survived":
                 report.survived += 1
+            elif status == "unclear":
+                report.unclear += 1
             if task is not None:
                 tasks.append(task)
                 if on_task:

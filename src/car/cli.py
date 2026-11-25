@@ -53,6 +53,12 @@ def cmd_generate(args: argparse.Namespace) -> int:
             f"{report.timed_out} timed out) -> {out}",
             file=sys.stderr,
         )
+        if report.unclear:
+            print(
+                f"[{name}] WARNING: {report.unclear} candidates failed the tests but no "
+                "failing test could be read from pytest's output; check the test command",
+                file=sys.stderr,
+            )
         if report.baseline_failures:
             print(f"[{name}] ignored failing baseline tests: {report.baseline_failures}",
                   file=sys.stderr)  # fmt: skip

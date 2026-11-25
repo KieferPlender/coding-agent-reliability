@@ -40,6 +40,7 @@ def test_generates_tasks_and_rejects_untested_code(generated):
     assert report.accepted == len(tasks) > 5
     assert report.tested == report.candidates
     assert report.accepted + report.survived + report.timed_out == report.tested
+    assert report.unclear == 0
     # Mutations in the untested helper can never fail a test.
     assert all(t.mutation.line < 27 for t in tasks)
     assert report.survived >= 1
@@ -114,3 +115,51 @@ def test_sampling_balances_bug_types():
     sample = sample_candidates(many + few, limit=8, seed=0)
     assert sum(m.operator == "comparison" for m in sample) == 4
     assert sample_candidates(many + few, 8, 0) == sample  # deterministic
+
+
+def test_failing_tests_ignores_terminal_colours():
+    # Projects with `addopts = "--color=yes"` colour the summary lines.
+    from car.sandbox import CommandResult
+
+    out = "\x1b[31mFAILED\x1b[0m tests/test_a.py::test_x - assert 1 == 2\n"
+    assert failing_tests(CommandResult(1, out, "", 0.1, False)) == {"tests/test_a.py::test_x"}
+
+
+def test_coloured_target_still_produces_tasks(tmp_path):
+    # Regression: python-slugify forces colour output, which hid every failure.
+    import shutil
+
+    proj = tmp_path / "toyproj"
+    shutil.copytree(TOY, proj)
+    (proj / "pyproject.toml").write_text('[tool.pytest.ini_options]\naddopts = "--color=yes"\n')
+    target = Target(
+        name="colour",
+        path=str(proj),
+        source_dirs=("toyproj",),
+        test_command=("python", "-m", "pytest", "tests"),
+    )
+    tasks, report = generate_tasks(target, proj, make_sandbox=factory, max_candidates=10)
+    assert report.accepted > 0 and report.unclear == 0
+
+
+def test_failures_without_parseable_output_are_unclear_not_survived(tmp_path):
+    import shutil
+
+    proj = tmp_path / "toyproj"
+    shutil.copytree(TOY, proj)
+    # A test command that fails without pytest's summary when the bug is present.
+    target = Target(
+        name="opaque",
+        path=str(proj),
+        source_dirs=("toyproj",),
+        test_command=(
+            "python",
+            "-c",
+            "import sys; from toyproj.calendar_utils import days_in_month as d;"
+            "sys.exit(d(2023, 1) != 31)",
+            "--",
+        ),
+    )
+    _, report = generate_tasks(target, proj, make_sandbox=factory, max_candidates=None)
+    assert report.unclear > 0
+    assert report.accepted == 0
