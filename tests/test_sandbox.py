@@ -55,3 +55,15 @@ def test_docker_sandbox_timeout():
     with DockerSandbox(TOY, image="python:3.12-slim") as box:
         result = box.run(["sleep", "30"], timeout_s=2)
     assert result.timed_out
+
+
+def test_local_sandbox_accepts_relative_interpreter_path(tmp_path, monkeypatch):
+    # `car generate` passes paths like `.car/envs/x/bin/python`, relative to where
+    # it was started; commands run inside the sandbox, so it must be made absolute.
+    link = tmp_path / "envs" / "python"
+    link.parent.mkdir()
+    link.symlink_to(sys.executable)
+    monkeypatch.chdir(tmp_path)
+    with LocalSandbox(TOY, python="envs/python") as box:
+        result = box.run(["python", "-c", "print('ok')"])
+    assert result.ok and result.stdout.strip() == "ok"

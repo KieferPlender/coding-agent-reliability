@@ -66,7 +66,7 @@ def checkout(target: Target, cache: Path) -> Path:
     if target.path:
         return Path(target.path)
     assert target.repo and target.commit
-    dest = cache / "repos" / target.name
+    dest = cache.resolve() / "repos" / target.name
     if not (dest / ".git").exists():
         dest.parent.mkdir(parents=True, exist_ok=True)
         subprocess.run(["git", "init", "-q", str(dest)], check=True)
@@ -91,7 +91,7 @@ def prepare_env(target: Target, cache: Path) -> str:
     The target itself is NOT installed: tests import it from the sandbox copy via
     PYTHONPATH, so injected bugs are what the tests actually exercise.
     """
-    env_dir = cache / "envs" / target.name
+    env_dir = cache.resolve() / "envs" / target.name
     python = env_dir / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
     marker = env_dir / ".car-ready"
     wanted = "\n".join(sorted(target.requirements))

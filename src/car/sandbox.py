@@ -65,8 +65,9 @@ class LocalSandbox:
         self._tmp = Path(tempfile.mkdtemp(prefix="car-"))
         self.workdir = self._tmp / "repo"
         shutil.copytree(source, self.workdir, ignore=IGNORED, symlinks=True)
-        # Interpreter for "python" commands, e.g. a target's prepared venv.
-        self.python = python
+        # Interpreter for "python" commands, e.g. a target's prepared venv. Made
+        # absolute because commands run with the sandbox as working directory.
+        self.python = os.path.abspath(python) if python and os.sep in python else python
         self.pythonpath = str(self.workdir / pythonpath) if pythonpath else None
 
     def run(self, command: list[str], timeout_s: float = 300) -> CommandResult:
