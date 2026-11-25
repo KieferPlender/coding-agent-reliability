@@ -55,7 +55,9 @@ def cmd_generate(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         if report.unclear:
-            log = args.out / f"{name}.unclear.jsonl"
+            # Kept out of the task directory so `tasks/*.jsonl` only matches task files.
+            log = args.out / "diagnostics" / f"{name}.unclear.jsonl"
+            log.parent.mkdir(parents=True, exist_ok=True)
             with log.open("w", encoding="utf-8") as f:
                 for detail in report.unclear_details:
                     f.write(json.dumps(detail) + "\n")
@@ -71,7 +73,13 @@ def cmd_generate(args: argparse.Namespace) -> int:
 
 
 def cmd_show(args: argparse.Namespace) -> int:
-    tasks = [t for path in args.files for t in read_tasks(path)]
+    tasks = []
+    for path in args.files:
+        try:
+            tasks.extend(read_tasks(path))
+        except (ValueError, TypeError, KeyError) as exc:
+            print(f"{path}: not a task file ({exc})", file=sys.stderr)
+            return 2
     print(f"{len(tasks)} tasks")
     for label, counter in (
         ("by target", Counter(t.target for t in tasks)),

@@ -27,3 +27,10 @@ requirements = ["pytest>=8"]
     tasks = read_tasks(Path("tasks/toy.jsonl"))
     assert tasks and all(t.failing_tests for t in tasks)
     assert main(["show", "tasks/toy.jsonl"]) == 0
+
+
+def test_show_rejects_non_task_files_cleanly(tmp_path, capsys):
+    bad = tmp_path / "x.unclear.jsonl"
+    bad.write_text('{"mutation": "a.py:1:0:<-><=", "exit_code": 3}\n')
+    assert main(["show", str(bad)]) == 2
+    assert "not a task file" in capsys.readouterr().err

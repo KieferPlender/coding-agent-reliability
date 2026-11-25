@@ -55,6 +55,8 @@ class Task:
     @classmethod
     def from_json(cls, line: str) -> Task:
         data = json.loads(line)
+        if not isinstance(data, dict) or not isinstance(data.get("mutation"), dict):
+            raise ValueError("expected a task record with a `mutation` object")
         data.pop("operator", None)
         data["mutation"] = Mutation(**data["mutation"])
         return cls(**data)
