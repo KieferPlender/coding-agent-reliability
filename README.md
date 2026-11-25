@@ -53,6 +53,16 @@ Candidate counts are before checking them against the tests. Targets are defined
 
 ## Usage
 
+Requires Python 3.11+. Install into a virtual environment (Homebrew and most Linux distributions block system-wide `pip install`):
+
+```bash
+python3 -m venv .venv
+```
+
+```bash
+source .venv/bin/activate
+```
+
 ```bash
 pip install -e ".[dev]"
 ```
