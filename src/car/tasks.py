@@ -23,7 +23,10 @@ from car.sandbox import CommandResult, LocalSandbox, Sandbox
 from car.targets import Target
 
 # pytest's short test summary lines, enabled with -rfE.
-_SUMMARY_RE = re.compile(r"^(FAILED|ERROR) (\S+)", re.MULTILINE)
+# Matches `FAILED <id>`, `ERROR <id>` and subtest failures, which pytest reports as
+# `SUBFAILED(<params>) <id>`; params may contain spaces, so the id is the first
+# token after them that looks like a test path.
+_SUMMARY_RE = re.compile(r"^(?:FAILED|ERROR|SUBFAILED(?:\(.*?\))?) (?P<id>\S+)", re.MULTILINE)
 # Terminal colour codes: some projects force `--color=yes` in their pytest config.
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -75,7 +78,7 @@ class GenerationReport:
 def failing_tests(result: CommandResult) -> set[str]:
     """Test ids reported as failed or errored by pytest (`-rfE`)."""
     output = _ANSI_RE.sub("", result.stdout)
-    return {match.group(2) for match in _SUMMARY_RE.finditer(output)}
+    return {match.group("id") for match in _SUMMARY_RE.finditer(output)}
 
 
 def pytest_args(target: Target) -> list[str]:

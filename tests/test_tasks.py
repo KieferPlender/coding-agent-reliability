@@ -165,3 +165,46 @@ def test_failures_without_parseable_output_are_unclear_not_survived(tmp_path):
     assert report.accepted == 0
     assert len(report.unclear_details) == report.unclear
     assert all(d["exit_code"] != 0 and d["mutation"] for d in report.unclear_details)
+
+
+def test_failing_tests_reads_subtest_failures():
+    # unittest subTest / pytest subtests report failures as SUBFAILED(<params>) <id>.
+    from car.sandbox import CommandResult
+
+    out = (
+        "SUBFAILED(text=\"'abc\\\\u200d'\") tests/test_m.py::Marks::test_joiners - Ass...\n"
+        "SUBFAILED(separator='::') tests/test_w.py::Words::test_order - AssertionError\n"
+        "SUBFAILED(text='a b') tests/test_w.py::Words::test_spaces\n"
+        "SUBFAILED tests/test_w.py::Words::test_plain\n"
+        "4 failed, 140 passed, 5 skipped, 148 subtests passed in 0.52s\n"
+    )
+    assert failing_tests(CommandResult(1, out, "", 0.1, False)) == {
+        "tests/test_m.py::Marks::test_joiners",
+        "tests/test_w.py::Words::test_order",
+        "tests/test_w.py::Words::test_spaces",
+        "tests/test_w.py::Words::test_plain",
+    }
+
+
+def test_real_pytest_subtest_failure_is_recognised(tmp_path):
+    # End to end against pytest's actual output, not a hand-written sample.
+    from car.sandbox import LocalSandbox
+
+    (tmp_path / "test_sub.py").write_text(
+        "import unittest\n"
+        "class T(unittest.TestCase):\n"
+        "    def test_values(self):\n"
+        "        for v in (1, 2, 3):\n"
+        "            with self.subTest(value=v, text='a b'):\n"
+        "                self.assertNotEqual(v, 2)\n"
+    )
+    target = Target(
+        name="sub",
+        path=str(tmp_path),
+        source_dirs=(".",),
+        test_command=("python", "-m", "pytest", "test_sub.py"),
+    )
+    with LocalSandbox(tmp_path, python=sys.executable) as box:
+        result = box.run(pytest_args(target))
+    assert result.exit_code == 1
+    assert failing_tests(result) == {"test_sub.py::T::test_values"}
