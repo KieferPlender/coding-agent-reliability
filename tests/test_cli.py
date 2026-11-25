@@ -34,3 +34,19 @@ def test_show_rejects_non_task_files_cleanly(tmp_path, capsys):
     bad.write_text('{"mutation": "a.py:1:0:<-><=", "exit_code": 3}\n')
     assert main(["show", str(bad)]) == 2
     assert "not a task file" in capsys.readouterr().err
+
+
+def test_load_dotenv_sets_missing_variables_only(tmp_path, monkeypatch):
+    from car.cli import load_dotenv
+
+    env = tmp_path / ".env"
+    env.write_text("# comment\nexport CAR_TEST_A='one'\nCAR_TEST_B=\"two\"\nCAR_TEST_C=keep\nbad\n")
+    monkeypatch.delenv("CAR_TEST_A", raising=False)
+    monkeypatch.delenv("CAR_TEST_B", raising=False)
+    monkeypatch.setenv("CAR_TEST_C", "already-set")
+    assert load_dotenv(env) == ["CAR_TEST_A", "CAR_TEST_B"]
+    import os
+
+    assert os.environ["CAR_TEST_A"] == "one" and os.environ["CAR_TEST_B"] == "two"
+    assert os.environ["CAR_TEST_C"] == "already-set"
+    assert load_dotenv(tmp_path / "missing") == []

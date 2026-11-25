@@ -96,6 +96,29 @@ def _bucket(n: int) -> str:
     return "1" if n == 1 else "2-5" if n <= 5 else "6+"
 
 
+def load_dotenv(path: Path = Path(".env")) -> list[str]:
+    """Set variables from a local `.env` file (KEY=value lines) if not already set.
+
+    Lets the API key live in a git-ignored file instead of shell history. Values are
+    never printed; only the names of variables that were loaded are returned.
+    """
+    import os
+
+    if not path.is_file():
+        return []
+    loaded = []
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.removeprefix("export ").split("=", 1)
+        key, value = key.strip(), value.strip().strip("'\"")
+        if key and value and key not in os.environ:
+            os.environ[key] = value
+            loaded.append(key)
+    return loaded
+
+
 def make_model(args: argparse.Namespace):
     from car.models import ClaudeModel, OpenAICompatModel
 
@@ -142,6 +165,9 @@ def cmd_run(args: argparse.Namespace) -> int:
                 src, python=_p, pythonpath=_t.pythonpath
             )
 
+    loaded = load_dotenv()
+    if loaded:
+        print(f"loaded from .env: {', '.join(loaded)}", file=sys.stderr)
     model = make_model(args)
     config = AgentConfig(max_steps=args.max_steps, max_cost_usd=args.max_cost_per_attempt)
     print(f"{model.name}: {len(tasks)} tasks x {args.attempts} attempts, budget ${args.budget:.2f}",

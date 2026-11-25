@@ -85,7 +85,7 @@ Tests can run in a local virtualenv (fast, for generating tasks) or in Docker (`
 
 Agent runs use Docker by default, because the model's edits are executed when the tests run. On a Mac, start Docker Desktop first. Each target gets an image with its test dependencies, built automatically on first use.
 
-Claude reads the API key from the `ANTHROPIC_API_KEY` environment variable. Keep it in your shell or a local `.env` (git-ignored); never in code. Install the Claude extra:
+Claude reads the API key from `ANTHROPIC_API_KEY`. The simplest safe place is a `.env` file in the project folder containing `ANTHROPIC_API_KEY=...`: it is git-ignored, `car run` loads it, and the key stays out of your shell history. Never put the key in code. Install the Claude extra:
 
 ```bash
 pip install -e ".[claude]"
