@@ -9,7 +9,12 @@ repo = "https://github.com/pytoolz/toolz"
 commit = "451af60dec590a6010e2babdbf391ea8f815122f"
 source_dirs = ["toolz"]
 exclude = ["toolz/tests", "toolz/curried", "toolz/sandbox"]
-test_command = ["python", "-m", "pytest", "toolz/tests"]
+# test_has_version needs toolz installed (version comes from package metadata);
+# targets are imported from the sandbox copy instead, so it can never pass.
+test_command = [
+  "python", "-m", "pytest", "toolz/tests",
+  "--deselect", "toolz/tests/test_package.py::test_has_version",
+]
 requirements = ["pytest>=8"]
 
 [[target]]
