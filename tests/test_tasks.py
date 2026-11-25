@@ -163,3 +163,5 @@ def test_failures_without_parseable_output_are_unclear_not_survived(tmp_path):
     _, report = generate_tasks(target, proj, make_sandbox=factory, max_candidates=None)
     assert report.unclear > 0
     assert report.accepted == 0
+    assert len(report.unclear_details) == report.unclear
+    assert all(d["exit_code"] != 0 and d["mutation"] for d in report.unclear_details)

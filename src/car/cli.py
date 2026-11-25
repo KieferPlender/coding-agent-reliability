@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from collections import Counter
 from pathlib import Path
@@ -54,9 +55,13 @@ def cmd_generate(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         if report.unclear:
+            log = args.out / f"{name}.unclear.jsonl"
+            with log.open("w", encoding="utf-8") as f:
+                for detail in report.unclear_details:
+                    f.write(json.dumps(detail) + "\n")
             print(
                 f"[{name}] WARNING: {report.unclear} candidates failed the tests but no "
-                "failing test could be read from pytest's output; check the test command",
+                f"failing test could be read from pytest's output; details in {log}",
                 file=sys.stderr,
             )
         if report.baseline_failures:

@@ -68,6 +68,8 @@ class GenerationReport:
     # counted as "survived": a parsing problem must not silently discard bugs.
     unclear: int = 0
     baseline_failures: list[str] = field(default_factory=list)
+    # One entry per unclear candidate, so the cause can be diagnosed afterwards.
+    unclear_details: list[dict] = field(default_factory=list)
 
 
 def failing_tests(result: CommandResult) -> set[str]:
@@ -180,7 +182,7 @@ def generate_tasks(
     report.candidates = len(candidates)
     sampled = sample_candidates(candidates, max_candidates, seed)
 
-    def check(mutation: Mutation) -> tuple[str, Task | None]:
+    def check(mutation: Mutation) -> tuple[str, Task | dict | None]:
         source = (repo / mutation.path).read_text(encoding="utf-8")
         mutated = apply_mutation(source, mutation)
         with _closing(make_sandbox(repo)) as box:
@@ -190,7 +192,12 @@ def generate_tasks(
             return "timed_out", None
         failed = failing_tests(result)
         if result.exit_code != 0 and not failed:
-            return "unclear", None
+            return "unclear", {
+                "mutation": mutation.id,
+                "exit_code": result.exit_code,
+                "stdout_tail": _ANSI_RE.sub("", result.stdout)[-1500:],
+                "stderr_tail": result.stderr[-1500:],
+            }
         newly_failing = failed - baseline_failed
         if result.exit_code == 0 or not newly_failing:
             return "survived", None
@@ -215,6 +222,8 @@ def generate_tasks(
                 report.survived += 1
             elif status == "unclear":
                 report.unclear += 1
+                report.unclear_details.append(task)  # type: ignore[arg-type]
+                continue
             if task is not None:
                 tasks.append(task)
                 if on_task:
