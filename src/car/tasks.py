@@ -250,6 +250,22 @@ class _closing:
         self.box.close()
 
 
+def select_tasks(tasks: list[Task], limit: int | None, seed: int = 0) -> list[Task]:
+    """A deterministic subset, spread evenly over targets (for cheap pilot runs)."""
+    rng = random.Random(seed)
+    by_target: dict[str, list[Task]] = {}
+    for task in sorted(tasks, key=lambda t: t.id):
+        by_target.setdefault(task.target, []).append(task)
+    for group in by_target.values():
+        rng.shuffle(group)
+    ordered: list[Task] = []
+    while any(by_target.values()):
+        for name in sorted(by_target):
+            if by_target[name]:
+                ordered.append(by_target[name].pop())
+    return ordered if limit is None else ordered[:limit]
+
+
 def write_tasks(tasks: list[Task], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as f:

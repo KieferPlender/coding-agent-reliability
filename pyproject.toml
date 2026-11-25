@@ -13,7 +13,8 @@ authors = [{ name = "Kiefer Plender" }]
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.6"]
+claude = ["anthropic>=2"]
+dev = ["pytest>=8", "ruff>=0.6", "anthropic>=2"]
 
 [project.scripts]
 car = "car.cli:main"

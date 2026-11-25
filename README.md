@@ -9,7 +9,7 @@ Public coding benchmarks are fixed sets of tasks that models may have seen durin
 - **Local vs API.** The same agent, tools and tasks run against Claude models and quantized open-weights models on a 16 GB MacBook, compared on solve rate, cost and time per *solved* bug.
 - **Why agents fail.** Every run is traced, and failures are classified (wrong file, edited the tests, lost in test output, malformed tool calls, ...).
 
-> **Status:** step 1 of 5 — task generation and sandboxing. See the [roadmap](#roadmap).
+> **Status:** step 2 of 5 — the task set (393 tasks) and the agent harness are built; first runs against real models are next. See the [roadmap](#roadmap).
 
 ## How a task is made
 
@@ -79,7 +79,49 @@ Summarize a task file:
 car show tasks/toolz.jsonl
 ```
 
-Tests can run in a local virtualenv (fast, for generating tasks) or in Docker (`--docker-image`), where each sandbox has **no network**, a memory limit and a process limit. Agent runs will always use Docker, because the model executes code.
+Tests can run in a local virtualenv (fast, for generating tasks) or in Docker (`--docker-image`), where each sandbox has **no network**, a memory limit and a process limit.
+
+### Running an agent
+
+Agent runs use Docker by default, because the model's edits are executed when the tests run. On a Mac, start Docker Desktop first. Each target gets an image with its test dependencies, built automatically on first use.
+
+Claude reads the API key from the `ANTHROPIC_API_KEY` environment variable. Keep it in your shell or a local `.env` (git-ignored); never in code. Install the Claude extra:
+
+```bash
+pip install -e ".[claude]"
+```
+
+A pilot run: 10 tasks spread over the targets, 1 attempt each, at most $1:
+
+```bash
+car run --provider claude --model claude-haiku-5-5 --limit 10 --attempts 1 --budget 1 --out results/pilot-haiku
+```
+
+A local model served by Ollama (or any OpenAI-compatible server, such as MLX or llama.cpp):
+
+```bash
+car run --provider local --model qwen2.5-coder:7b --limit 10 --attempts 1 --workers 1 --out results/pilot-local
+```
+
+Re-running the same command resumes: attempts that already have a result are skipped, so `--attempts` or `--budget` can be raised later. Summarize any results directory:
+
+```bash
+car report results/pilot-haiku
+```
+
+Each attempt writes a full trace (every model response, tool call and result) to `results/<run>/traces/`, and one line to `results/<run>/results.jsonl` with the outcome, cost, time, the agent's patch and why it stopped.
+
+## The agent
+
+Deliberately minimal, so differences between models come from the models:
+
+- **Tools:** `run_tests`, `list_files`, `read_file`, `search`, `edit_file` (exact text replacement) and `finish`. There is no general shell: every action is typed, validated and logged, which is what makes failures classifiable. Edits to test files are refused and counted.
+- **Same loop for every model.** Claude runs through the Anthropic Messages API, local models through an OpenAI-compatible endpoint; prompts, tools and limits are identical.
+- **Limits per attempt:** 30 model responses, $0.50, 15 minutes. One nudge if the model replies without using a tool.
+- **Scoring ignores what the agent claims.** After the attempt, the agent's workspace is copied into a fresh sandbox and the full test suite is run. Solved means every test passes and no test file changed. The patch is compared with the original code, so "exact revert" and "different but valid fix" can be told apart.
+- **Refusals are an outcome, not a retry.** Claude's automatic fallback to another model is not enabled, because it would silently change which model answered.
+
+Every failed attempt gets an automatic first label (edited the wrong file, finished while tests still fail, ran out of steps, tried to edit tests, malformed tool calls, ...), which the trace makes easy to check by hand.
 
 ## Design notes
 
@@ -91,9 +133,9 @@ Tests can run in a local virtualenv (fast, for generating tasks) or in Docker (`
 ## Roadmap
 
 1. ✅ **Task generation and sandboxing** — bug injection, validation against real test suites, local and Docker sandboxes.
-2. **Baseline agent and harness** — a minimal agent loop (read, search, edit, run tests), full tracing, parallel runs with a cost cap, Claude via the Anthropic API and local models via an OpenAI-compatible server.
+2. ✅ **Baseline agent and harness** — a minimal agent loop (read, search, edit, run tests), full tracing, parallel runs with a cost cap, Claude via the Anthropic API and local models via an OpenAI-compatible server.
 3. **First full run and failure analysis** — solve rate, pass^k, cost and time per solved task; failures grouped by cause.
-4. **Targeted improvements** — one change at a time (shorter test output, a search tool, verify-before-finishing, ...), each measured on its own.
+4. **Targeted improvements** — one change at a time (shorter test output, a plan-first prompt, verify-before-finishing, ...), each measured on its own.
 5. **Local vs API results** — 8B and 14B models on a 16 GB MacBook (MLX and llama.cpp) against Claude Haiku, Sonnet and Opus; write-up.
 
 ## License

@@ -1,4 +1,4 @@
-"""Command-line interface: `car generate`, `car show`."""
+"""Command-line interface: generate tasks, run agents on them, report results."""
 
 from __future__ import annotations
 
@@ -8,9 +8,9 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from car.sandbox import DockerSandbox, LocalSandbox
+from car.sandbox import DockerSandbox, LocalSandbox, docker_available
 from car.targets import Target, checkout, load_targets, prepare_env
-from car.tasks import SandboxFactory, generate_tasks, read_tasks, write_tasks
+from car.tasks import SandboxFactory, generate_tasks, read_tasks, select_tasks, write_tasks
 
 DEFAULT_TARGETS = Path("targets/targets.toml")
 DEFAULT_CACHE = Path(".car")
@@ -96,6 +96,81 @@ def _bucket(n: int) -> str:
     return "1" if n == 1 else "2-5" if n <= 5 else "6+"
 
 
+def make_model(args: argparse.Namespace):
+    from car.models import ClaudeModel, OpenAICompatModel
+
+    if args.provider == "claude":
+        return ClaudeModel(args.model, effort=args.effort)
+    return OpenAICompatModel(args.model, base_url=args.base_url)
+
+
+def cmd_run(args: argparse.Namespace) -> int:
+    from car.agent import AgentConfig
+    from car.harness import run_suite
+    from car.images import build_image
+
+    files = args.tasks or sorted(Path("tasks").glob("*.jsonl"))
+    tasks = select_tasks([t for f in files for t in read_tasks(f)], args.limit, args.seed)
+    if not tasks:
+        print("no tasks found; run `car generate` first", file=sys.stderr)
+        return 2
+    targets = load_targets(args.targets)
+    if args.sandbox == "local" and not args.unsafe_local_sandbox:
+        print(
+            "refusing to run agents without Docker: the model's edits are executed when the "
+            "tests run. Use --sandbox docker, or pass --unsafe-local-sandbox if you accept "
+            "running model-written code directly on this machine.",
+            file=sys.stderr,
+        )
+        return 2
+    if args.sandbox == "docker" and not docker_available():
+        print("Docker is not running; start Docker Desktop and retry.", file=sys.stderr)
+        return 2
+
+    repos, factories = {}, {}
+    for name in sorted({t.target for t in tasks}):
+        target = targets[name]
+        repos[name] = checkout(target, args.cache)
+        if args.sandbox == "docker":
+            image = build_image(target)
+            factories[name] = lambda src, _i=image, _t=target: DockerSandbox(
+                src, image=_i, pythonpath=_t.pythonpath
+            )
+        else:
+            python = prepare_env(target, args.cache)
+            factories[name] = lambda src, _p=python, _t=target: LocalSandbox(
+                src, python=_p, pythonpath=_t.pythonpath
+            )
+
+    model = make_model(args)
+    config = AgentConfig(max_steps=args.max_steps, max_cost_usd=args.max_cost_per_attempt)
+    print(f"{model.name}: {len(tasks)} tasks x {args.attempts} attempts, budget ${args.budget:.2f}",
+          file=sys.stderr)  # fmt: skip
+
+    def progress(row: dict) -> None:
+        mark = "solved" if row["score_solved"] else "failed"
+        print(f"  {row['task']} #{row['attempt']}: {mark} ({row['stop']}, {row['steps']} steps, "
+              f"${row['cost_usd']:.4f}, {row['seconds']:.0f}s)", file=sys.stderr)  # fmt: skip
+
+    run_suite(tasks, model, targets, repos, factories, args.out, attempts=args.attempts,
+              budget_usd=args.budget, workers=args.workers, config=config,
+              on_result=progress)  # fmt: skip
+    return cmd_report(argparse.Namespace(results=args.out))
+
+
+def cmd_report(args: argparse.Namespace) -> int:
+    from car.harness import load_results
+    from car.metrics import format_report
+
+    path = args.results / "results.jsonl" if args.results.is_dir() else args.results
+    rows = load_results(path)
+    if not rows:
+        print(f"no results in {path}", file=sys.stderr)
+        return 2
+    print(format_report(rows))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="car", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -116,6 +191,32 @@ def build_parser() -> argparse.ArgumentParser:
     show = sub.add_parser("show", help="summarize task files")
     show.add_argument("files", nargs="+", type=Path)
     show.set_defaults(func=cmd_show)
+
+    run = sub.add_parser("run", help="run an agent on tasks and score the attempts")
+    run.add_argument("--provider", choices=["claude", "local"], required=True)
+    run.add_argument("--model", required=True,
+                     help="e.g. claude-haiku-5-5, or the local server's model name")  # fmt: skip
+    run.add_argument("--effort", default="medium", help="Claude effort level")
+    run.add_argument("--base-url", default="http://localhost:11434/v1",
+                     help="OpenAI-compatible endpoint for --provider local")  # fmt: skip
+    run.add_argument("--tasks", nargs="*", type=Path, help="task files (default: tasks/*.jsonl)")
+    run.add_argument("--limit", type=int, help="run a subset spread over targets")
+    run.add_argument("--seed", type=int, default=0)
+    run.add_argument("--attempts", type=int, default=3)
+    run.add_argument("--budget", type=float, default=2.0, help="USD; stops starting attempts")
+    run.add_argument("--max-cost-per-attempt", type=float, default=0.50)
+    run.add_argument("--max-steps", type=int, default=30)
+    run.add_argument("--workers", type=int, default=2)
+    run.add_argument("--sandbox", choices=["docker", "local"], default="docker")
+    run.add_argument("--unsafe-local-sandbox", action="store_true")
+    run.add_argument("--out", type=Path, required=True, help="results directory")
+    run.add_argument("--targets", type=Path, default=DEFAULT_TARGETS)
+    run.add_argument("--cache", type=Path, default=DEFAULT_CACHE)
+    run.set_defaults(func=cmd_run)
+
+    report = sub.add_parser("report", help="summarize a results directory")
+    report.add_argument("results", type=Path)
+    report.set_defaults(func=cmd_report)
     return parser
 
 
